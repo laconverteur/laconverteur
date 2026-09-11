@@ -44,3 +44,14 @@ Use `-IncludeLarge` to include the large Uber Eats, Turm and Auditorium projects
 
 Venue fixtures are local-only and excluded from Git. They are never included
 in the source repository or uploaded through Git LFS.
+
+### Experimental map importer (Phase 0)
+
+The isolated geodata spike downloads an Esri World Imagery PNG and OpenStreetMap
+building footprints for a metric extent. Generated packages and caches belong in
+`tests/output/` and are not committed:
+
+```powershell
+python .\src\geo\geo_phase0.py --lat 50.941066 --lon 6.957008 --width 200 --height 200 --output .\tests\output\geo-phase0
+python -m unittest .\tests\test_geo_phase0.py
+```
