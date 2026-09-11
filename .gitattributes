@@ -1,0 +1,17 @@
+* text=auto
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
+*.py text eol=lf
+
+*.dbacv binary
+*.dbpr binary
+*.eprj binary
+*.fc3 binary
+*.png filter=lfs diff=lfs merge=lfs -text
+*.s3d filter=lfs diff=lfs merge=lfs -text
+*.xmlp binary
+*.xmls binary

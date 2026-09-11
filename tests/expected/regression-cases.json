@@ -1,0 +1,63 @@
+{
+  "cases": [
+    {
+      "id": "soundvision-palladium",
+      "input": "tests/fixtures/soundvision/palladium-Koln.xmls",
+      "checks": ["surfaceAudienceAssignment", "origins", "dimensions"]
+    },
+    {
+      "id": "soundvision-royal-albert-hall",
+      "input": "tests/fixtures/soundvision/royalalberthall.xmlp",
+      "checks": ["projectFormat", "geometry", "groups", "metadata"]
+    },
+    {
+      "id": "soundvision-uber-eats",
+      "input": "tests/fixtures/soundvision/Uber-Eats-Arena-Berlin-.xmls",
+      "large": true,
+      "checks": ["complexPolygonSplit", "audienceDeletion", "nonZeroDirectionVectors"]
+    },
+    {
+      "id": "arraycalc-koelnarena-dbacv",
+      "input": "tests/fixtures/arraycalc/koelnarena.dbacv",
+      "checks": ["dbacvImport", "surfaceAudienceAssignment", "heights", "links"]
+    },
+    {
+      "id": "arraycalc-the-star-dbpr",
+      "input": "tests/fixtures/arraycalc/thestar_sydney.dbpr",
+      "checks": ["dbprImport", "groups", "handles", "arrows", "audienceLinks"]
+    },
+    {
+      "id": "easefocus-one-receiver",
+      "input": "tests/fixtures/easefocus/10x10_1receiver.fc3",
+      "checks": ["receiverCount", "receiverPosition", "receiverColor"]
+    },
+    {
+      "id": "easefocus-two-receivers",
+      "input": "tests/fixtures/easefocus/10x10_2receiver.fc3",
+      "checks": ["receiverCount", "receiverPositions", "receiverColors"]
+    },
+    {
+      "id": "easefocus-gruen23-basemap",
+      "input": "tests/fixtures/easefocus/gruen23.fc3",
+      "large": true,
+      "checks": ["pngBasemap", "basemapPosition", "basemapRotation"]
+    },
+    {
+      "id": "easefocus-turm-receivers-basemap",
+      "input": "tests/fixtures/easefocus/turm_26_mitempfaengern.fc3",
+      "large": true,
+      "checks": ["pngBasemap", "basemapPosition", "basemapRotation", "receiverCount", "receiverPositions", "receiverColors"]
+    },
+    {
+      "id": "ease5-auditorium-si",
+      "input": "tests/fixtures/ease5/Auditorium, SI.eprj",
+      "large": true,
+      "checks": ["decode", "groups", "materials", "stableSurfaces", "allBasemapPlanes"]
+    },
+    {
+      "id": "ease5-osna",
+      "input": "tests/fixtures/ease5/OsnaE5_V3_0.eprj",
+      "checks": ["decode", "geometry", "origins", "groups", "objectCount"]
+    }
+  ]
+}

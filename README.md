@@ -1,0 +1,46 @@
+# La Converteur
+
+La Converteur converts venue projects from Soundvision, ArrayCalc, EASE Focus 3 and EASE 5 into RDShape `.s3d` projects.
+
+## Supported inputs
+
+- Soundvision: `.xmlp`, `.xmls`, `.xml`
+- ArrayCalc: `.dbacv`, `.dbpr`
+- EASE Focus 3: `.fc3`
+- EASE 5: `.eprj` (requires a compatible local EASE 5 installation for legacy projects)
+
+## Repository layout
+
+- `src/converter/converteur.py`: main Python converter
+- `src/gui/`: Windows Forms frontend
+- `assets/`: GUI artwork
+- `templates/rdshape/`: native RDShape templates used by the writer
+- `tests/fixtures/`: local-only input and RDShape reference files (ignored by Git)
+- `tests/expected/`: machine-readable expectations
+- `scripts/`: build, checksum and regression scripts
+- `dist/`: generated portable package (not committed)
+
+## Build
+
+The portable build needs a prepared runtime directory containing `python/` and `occt/`. A known-good unpacked portable package can be supplied as the runtime source:
+
+```powershell
+.\scripts\Build-Portable.ps1 -RuntimeSource "..\dependencies\portable-runtime"
+```
+
+The resulting archive and its SHA-256 checksum are written to `dist/`. The ZIP
+opens directly to `La Converteur.exe` and one support directory named
+`converteur/`; no additional wrapper directory is used.
+
+## Tests
+
+Run the conversion regression suite against the freshly staged package:
+
+```powershell
+.\scripts\Test-Regression.ps1
+```
+
+Use `-IncludeLarge` to include the large Uber Eats, Turm and Auditorium projects.
+
+Venue fixtures are local-only and excluded from Git. They are never included
+in the source repository or uploaded through Git LFS.

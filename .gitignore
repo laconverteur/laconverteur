@@ -1,0 +1,34 @@
+# Build output
+.build*/
+bin/
+obj/
+publish*/
+dist/*
+!dist/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local runtimes and tools
+dependencies/
+.dotnet-cli/
+.dotnet-home/
+.nuget-packages/
+.tools/
+
+# Generated conversions and logs
+tests/output/
+*.log
+*.cbf
+
+# Venue projects are private, local-only regression fixtures
+tests/fixtures/**
+!tests/fixtures/README.md
+
+# Editor and operating-system files
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
