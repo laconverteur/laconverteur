@@ -39,6 +39,11 @@ Copy-Item -LiteralPath (Join-Path $converterSource "converteur.py") -Destination
 Copy-Item -LiteralPath (Join-Path $converterSource "e5_eprj_prototype.py") -Destination $support
 Copy-Item -LiteralPath (Join-Path $converterSource "occt_colors.html") -Destination $support
 Copy-Item -LiteralPath (Join-Path $converterSource "e5-prototype") -Destination (Join-Path $support "e5-prototype") -Recurse
+$geoSupport = Join-Path $support "geo"
+New-Item -ItemType Directory -Path $geoSupport -Force | Out-Null
+foreach ($geoFile in @("__init__.py", "geo_phase0.py", "geo_to_s3d.py", "elevation.py", "stitch_tiles.ps1")) {
+    Copy-Item -LiteralPath (Join-Path $repo "src\geo\$geoFile") -Destination $geoSupport
+}
 Copy-Item -LiteralPath (Join-Path $repo "templates\rdshape") -Destination (Join-Path $support "rdshape") -Recurse
 Copy-Item -LiteralPath (Join-Path $repo "assets") -Destination (Join-Path $support "assets") -Recurse
 Copy-Item -LiteralPath (Join-Path $repo "src\gui\strings.en.json") -Destination (Join-Path $support "strings.en.json")

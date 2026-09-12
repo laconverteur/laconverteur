@@ -13,12 +13,12 @@ internal sealed class MainForm : Form
 {
     readonly Dictionary<string, string> strings;
     readonly Panel dropZone = new();
-    readonly PictureBox logo = new(), convertButton = new();
+    readonly PictureBox logo = new(), convertButton = new(), mapButton = new();
     readonly Label dropLabel = new(), fileLabel = new();
     readonly CheckBox openResult = new(), batchProcess = new();
     readonly ProgressBar progress = new();
     readonly TextBox log = new();
-    readonly Image normal, hover, clicked;
+    readonly Image normal, hover, clicked, mapNormal, mapHover, mapClicked;
     string? inputPath;
     bool busy;
 
@@ -36,6 +36,9 @@ internal sealed class MainForm : Form
         normal = Image.FromFile(Path.Combine(support, "assets", "baguette_normal_alpha.png"));
         hover = Image.FromFile(Path.Combine(support, "assets", "baguette_hover_alpha.png"));
         clicked = Image.FromFile(Path.Combine(support, "assets", "baguette_clicked_alpha.png"));
+        mapNormal = Image.FromFile(Path.Combine(support, "assets", "croissant_alpha.png"));
+        mapHover = Image.FromFile(Path.Combine(support, "assets", "croissant_hover_alpha.png"));
+        mapClicked = Image.FromFile(Path.Combine(support, "assets", "croissant_clicked_alpha.png"));
         var canvas = Color.FromArgb(253, 252, 248);
         Text = S("windowTitle"); MinimumSize = new Size(820, 1050); Size = new Size(900, 1250);
         StartPosition = FormStartPosition.CenterScreen; BackColor = canvas;
@@ -62,12 +65,14 @@ internal sealed class MainForm : Form
         openResult.Margin = new Padding(0, 7, 28, 0); batchProcess.Margin = new Padding(28, 7, 0, 0);
         checkRow.Controls.Add(openResult, 0, 0); checkRow.Controls.Add(batchProcess, 1, 0);
         convertButton.Image = normal; convertButton.SizeMode = PictureBoxSizeMode.Zoom; convertButton.Cursor = Cursors.Hand; convertButton.BackColor = Color.Transparent;
-        convertButton.Enabled = false; convertButton.SetBounds(270, 900, 360, 120); convertButton.Anchor = AnchorStyles.Top;
+        convertButton.Enabled = false; convertButton.SetBounds(45, 900, 390, 120); convertButton.Anchor = AnchorStyles.Top;
+        mapButton.Image = mapNormal; mapButton.SizeMode = PictureBoxSizeMode.Zoom; mapButton.Cursor = Cursors.Hand; mapButton.BackColor = Color.Transparent;
+        mapButton.SetBounds(465, 900, 390, 120); mapButton.Anchor = AnchorStyles.Top;
         progress.SetBounds(30, 1035, 824, 8); progress.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         log.Multiline = true; log.ReadOnly = true; log.ScrollBars = ScrollBars.Vertical; log.BackColor = canvas;
         log.ForeColor = Color.FromArgb(35, 35, 35); log.BorderStyle = BorderStyle.FixedSingle; log.SetBounds(30, 1057, 824, 135);
         log.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        Controls.AddRange([heading, dropZone, checkRow, convertButton, progress, log]);
+        Controls.AddRange([heading, mapButton, dropZone, checkRow, convertButton, progress, log]);
 
         foreach (Control target in new Control[] { this, dropZone, logo, dropLabel, fileLabel }) { target.DragEnter += OnDragEnter; target.DragDrop += OnDragDrop; target.AllowDrop = true; }
         convertButton.Click += async (_, _) => { if (!busy && inputPath is not null) await ConvertAsync(); };
@@ -76,6 +81,15 @@ internal sealed class MainForm : Form
         convertButton.MouseDown += (_, _) => { if (convertButton.Enabled && !busy) convertButton.Image = clicked; };
         convertButton.MouseUp += (_, _) => { if (convertButton.Enabled && !busy) convertButton.Image = hover; };
         batchProcess.CheckedChanged += (_, _) => { openResult.Enabled = !batchProcess.Checked; if (batchProcess.Checked) openResult.Checked = false; };
+        mapButton.Click += (_, _) =>
+        {
+            var showApiKeyDialog = (ModifierKeys & Keys.Shift) == Keys.Shift;
+            new GeoSelectionForm(AppContext.BaseDirectory, AppendLog, showApiKeyDialog).ShowDialog(this);
+        };
+        mapButton.MouseEnter += (_, _) => { if (!busy) mapButton.Image = mapHover; };
+        mapButton.MouseLeave += (_, _) => { if (!busy) mapButton.Image = mapNormal; };
+        mapButton.MouseDown += (_, _) => { if (!busy) mapButton.Image = mapClicked; };
+        mapButton.MouseUp += (_, _) => { if (!busy) mapButton.Image = mapHover; };
         Shown += (_, _) => { if (Environment.GetCommandLineArgs().Length > 1) SelectFile(Environment.GetCommandLineArgs()[1]); };
     }
 
@@ -155,6 +169,7 @@ internal sealed class MainForm : Form
     {
         busy = value; convertButton.Enabled = !busy && inputPath is not null; convertButton.Image = normal;
         batchProcess.Enabled = !busy; if (!batchProcess.Checked) openResult.Enabled = !busy;
+        mapButton.Enabled = !busy; mapButton.Image = mapNormal;
         AllowDrop = dropZone.AllowDrop = logo.AllowDrop = !busy; progress.Value = 0;
         progress.Style = busy ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
     }

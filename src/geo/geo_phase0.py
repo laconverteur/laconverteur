@@ -8,14 +8,20 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import Any
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 EARTH_RADIUS = 6_378_137.0
 TILE_SIZE = 256
@@ -56,13 +62,22 @@ def global_pixel(lon: float, lat: float, zoom: int) -> tuple[float, float]:
     return ((lon + 180.0) / 360.0 * size, (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * size)
 
 
-def request_bytes(url: str, *, data: bytes | None = None, content_type: str | None = None) -> bytes:
+def request_bytes(url: str, *, data: bytes | None = None, content_type: str | None = None, attempts: int = 3) -> bytes:
     headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     if content_type:
         headers["Content-Type"] = content_type
     request = urllib.request.Request(url, data=data, headers=headers)
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return response.read()
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt + 1 == attempts:
+                raise
+            time.sleep(1 << attempt)
+    raise RuntimeError("Network request failed")
 
 
 def cached_request(cache: Path, key: str, url: str, *, data: bytes | None = None, content_type: str | None = None) -> bytes:
@@ -104,7 +119,12 @@ def download_imagery(bounds: dict[str, float], zoom: int, cache: Path, output: P
 
 def overpass_query(bounds: dict[str, float]) -> str:
     bbox = f'{bounds["south"]:.8f},{bounds["west"]:.8f},{bounds["north"]:.8f},{bounds["east"]:.8f}'
-    return f'[out:json][timeout:25];(way["building"]({bbox});relation["building"]({bbox}););out body;>;out skel qt;'
+    return (
+        f'[out:json][timeout:25];('
+        f'way["building"]({bbox});relation["building"]({bbox});'
+        f'way["building:part"]({bbox});relation["building:part"]({bbox});'
+        f');out body;>;out skel qt;'
+    )
 
 
 def way_polygon(way: dict[str, Any], nodes: dict[int, tuple[float, float]]) -> list[list[float]] | None:
@@ -131,19 +151,27 @@ def download_buildings(bounds: dict[str, float], cache: Path, endpoint: str) -> 
             break
         except urllib.error.HTTPError as error:
             last_error = error
-            if error.code not in (429, 502, 503, 504) or candidate == endpoints[-1]:
-                raise
+            detail = error.read().decode("utf-8", errors="replace")
+            detail = re.sub(r"<[^>]+>", " ", detail)
+            detail = " ".join(detail.split())
+            if candidate == endpoints[-1]:
+                raise RuntimeError(f"Overpass returned HTTP {error.code}: {detail[:500]}") from None
             print(f"Overpass returned HTTP {error.code}; trying fallback instance ...", file=sys.stderr)
+        except (urllib.error.URLError, TimeoutError) as error:
+            last_error = error
+            if candidate == endpoints[-1]:
+                raise RuntimeError(f"Overpass request failed: {error}") from None
+            print("Overpass request timed out; trying fallback instance ...", file=sys.stderr)
     else:
         raise RuntimeError("No Overpass endpoint returned data") from last_error
     elements = json.loads(raw).get("elements", [])
     nodes = {item["id"]: (item["lon"], item["lat"]) for item in elements if item.get("type") == "node"}
     ways = {item["id"]: item for item in elements if item.get("type") == "way"}
-    relation_outer_ids = {member["ref"] for relation in elements if relation.get("type") == "relation" and "building" in relation.get("tags", {}) for member in relation.get("members", []) if member.get("type") == "way" and member.get("role", "") in ("", "outer")}
+    relation_outer_ids = {member["ref"] for relation in elements if relation.get("type") == "relation" and ({"building", "building:part"} & relation.get("tags", {}).keys()) for member in relation.get("members", []) if member.get("type") == "way" and member.get("role", "") in ("", "outer")}
     features: list[dict[str, Any]] = []
     for way_id, way in ways.items():
         tags = way.get("tags", {})
-        if "building" not in tags and way_id not in relation_outer_ids:
+        if not ({"building", "building:part"} & tags.keys()) and way_id not in relation_outer_ids:
             continue
         polygon = way_polygon(way, nodes)
         if polygon is not None:
@@ -165,14 +193,19 @@ def buildings_to_local(buildings: dict[str, Any], center_lon: float, center_lat:
     return {"coordinateSystem": "local-conformal-ENU", "unit": "metre", "features": features}
 
 
-def write_project(output: Path, lat: float, lon: float, width: float, height: float, zoom: int, imagery_endpoint: str, overpass_endpoint: str) -> None:
+def write_project(output: Path, lat: float, lon: float, width: float, height: float, zoom: int, imagery_endpoint: str, overpass_endpoint: str, elevation_dataset: str | None = None, imagery_only: bool = False, skip_buildings: bool = False) -> None:
     if width <= 0 or height <= 0 or width > 5000 or height > 5000:
         raise ValueError("Width and height must be greater than zero and at most 5000 metres")
     output.mkdir(parents=True, exist_ok=True)
     cache = output / "cache"
     bounds = bounds_for_metric_extent(lat, lon, width, height)
     imagery = download_imagery(bounds, zoom, cache, output / "imagery.png", imagery_endpoint)
-    buildings, used_overpass_endpoint = download_buildings(bounds, cache, overpass_endpoint)
+    if imagery_only or skip_buildings:
+        buildings = {"type": "FeatureCollection", "features": []}
+        used_overpass_endpoint = None
+    else:
+        buildings, used_overpass_endpoint = download_buildings(bounds, cache, overpass_endpoint)
+        local_buildings = buildings_to_local(buildings, lon, lat)
     local_buildings = buildings_to_local(buildings, lon, lat)
     (output / "buildings.geojson").write_text(json.dumps(buildings, indent=2, ensure_ascii=False), encoding="utf-8")
     (output / "buildings-local.json").write_text(json.dumps(local_buildings, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -185,6 +218,9 @@ def write_project(output: Path, lat: float, lon: float, width: float, height: fl
         "imagery": {"file": "imagery.png", **imagery, "provider": "Esri World Imagery"},
         "buildings": {"file": "buildings.geojson", "localFile": "buildings-local.json", "featureCount": len(buildings["features"]), "provider": "OpenStreetMap/Overpass", "endpoint": used_overpass_endpoint},
     }
+    if elevation_dataset:
+        from geo.elevation import add_elevation_to_package
+        project["terrain"] = add_elevation_to_package(output, bounds, lon, lat, elevation_dataset)
     (output / "project.json").write_text(json.dumps(project, indent=2, ensure_ascii=False), encoding="utf-8")
     (output / "attribution.txt").write_text("Imagery: Esri World Imagery and its listed data providers.\nBuilding data: © OpenStreetMap contributors, ODbL 1.0.\n", encoding="utf-8")
 
@@ -199,8 +235,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--imagery-endpoint", default=os.environ.get("LACONVERTEUR_IMAGERY_ENDPOINT", DEFAULT_IMAGERY))
     parser.add_argument("--overpass-endpoint", default=os.environ.get("LACONVERTEUR_OVERPASS_ENDPOINT", DEFAULT_OVERPASS))
+    parser.add_argument("--elevation", choices=("GEDTM30", "COP30", "COP90", "SRTMGL1", "NASADEM", "EU_DTM"), help="optional OpenTopography elevation dataset; GEDTM30 is the global terrain default")
+    parser.add_argument("--imagery-only", action="store_true", help="download only satellite imagery for a fast GUI preview")
+    parser.add_argument("--skip-buildings", action="store_true", help="omit OpenStreetMap buildings while retaining optional terrain")
     args = parser.parse_args()
-    write_project(args.output.resolve(), args.lat, args.lon, args.width, args.height, args.zoom, args.imagery_endpoint, args.overpass_endpoint)
+    write_project(args.output.resolve(), args.lat, args.lon, args.width, args.height, args.zoom, args.imagery_endpoint, args.overpass_endpoint, args.elevation, args.imagery_only, args.skip_buildings)
     print(f"Wrote Phase-0 geo package to {args.output.resolve()}")
     return 0
 

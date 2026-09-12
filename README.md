@@ -55,3 +55,20 @@ building footprints for a metric extent. Generated packages and caches belong in
 python .\src\geo\geo_phase0.py --lat 50.941066 --lon 6.957008 --width 200 --height 200 --output .\tests\output\geo-phase0
 python -m unittest .\tests\test_geo_phase0.py
 ```
+
+Add a global bare-earth GEDTM30 elevation grid when an OpenTopography key is available in
+`LACONVERTEUR_OPENTOPOGRAPHY_API_KEY`:
+
+```powershell
+python .\src\geo\geo_phase0.py --lat 50.941066 --lon 6.957008 --width 200 --height 200 --elevation GEDTM30 --output .\tests\output\geo-phase0
+```
+
+Stage 1 can turn a few simple quadrilateral footprints from that package into
+an isolated RDShape venue without running the portable build:
+
+```powershell
+python .\src\geo\geo_to_s3d.py .\tests\output\geo-phase0 .\tests\output\geo-stage1.s3d --occt ..\dependencies\portable-runtime\occt
+```
+
+Use `--limit 0` to include every simple quadrilateral building footprint and
+building part returned for the selected extent.
