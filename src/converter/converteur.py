@@ -1031,8 +1031,21 @@ def read_arraycalc_xml(path: Path) -> list[Surface]:
     return _arraycalc_surfaces(records)
 
 
+def _open_sqlite_read_only(path: Path) -> sqlite3.Connection:
+    """Open a SQLite file read-only without turning UNC paths into URI authorities."""
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(resolved)
+    # ``file://Mac/share/...`` makes SQLite interpret ``Mac`` as a URI
+    # authority, which it rejects. Passing the native filesystem path supports
+    # Windows UNC shares; query_only retains the importer's read-only contract.
+    connection = sqlite3.connect(str(resolved))
+    connection.execute("PRAGMA query_only=ON")
+    return connection
+
+
 def read_arraycalc_db(path: Path) -> list[Surface]:
-    connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    connection = _open_sqlite_read_only(path)
     connection.row_factory = sqlite3.Row
     records = []
     try:
