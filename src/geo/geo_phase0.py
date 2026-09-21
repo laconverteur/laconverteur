@@ -29,6 +29,8 @@ USER_AGENT = "La-Converteur/0.1 (mailto:laconverteur@proton.me)"
 DEFAULT_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 DEFAULT_OVERPASS = "https://overpass-api.de/api/interpreter"
 FALLBACK_OVERPASS = "https://overpass.private.coffee/api/interpreter"
+SECONDARY_FALLBACK_OVERPASS = "https://overpass.kumi.systems/api/interpreter"
+OVERPASS_REQUEST_TIMEOUT = 12
 
 
 def mercator_from_lon_lat(lon: float, lat: float) -> tuple[float, float]:
@@ -62,14 +64,14 @@ def global_pixel(lon: float, lat: float, zoom: int) -> tuple[float, float]:
     return ((lon + 180.0) / 360.0 * size, (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * size)
 
 
-def request_bytes(url: str, *, data: bytes | None = None, content_type: str | None = None, attempts: int = 3) -> bytes:
+def request_bytes(url: str, *, data: bytes | None = None, content_type: str | None = None, attempts: int = 3, timeout: float = 60) -> bytes:
     headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     if content_type:
         headers["Content-Type"] = content_type
     request = urllib.request.Request(url, data=data, headers=headers)
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read()
         except urllib.error.HTTPError:
             raise
@@ -80,12 +82,12 @@ def request_bytes(url: str, *, data: bytes | None = None, content_type: str | No
     raise RuntimeError("Network request failed")
 
 
-def cached_request(cache: Path, key: str, url: str, *, data: bytes | None = None, content_type: str | None = None) -> bytes:
+def cached_request(cache: Path, key: str, url: str, *, data: bytes | None = None, content_type: str | None = None, attempts: int = 3, timeout: float = 60) -> bytes:
     cache.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256((key + "\n" + url + "\n").encode() + (data or b"")).hexdigest()
     target = cache / digest
     if not target.exists():
-        target.write_bytes(request_bytes(url, data=data, content_type=content_type))
+        target.write_bytes(request_bytes(url, data=data, content_type=content_type, attempts=attempts, timeout=timeout))
     return target.read_bytes()
 
 
@@ -142,11 +144,19 @@ def download_buildings(bounds: dict[str, float], cache: Path, endpoint: str) -> 
     payload = urllib.parse.urlencode({"data": overpass_query(bounds)}).encode()
     endpoints = [endpoint]
     if endpoint == DEFAULT_OVERPASS:
-        endpoints.append(FALLBACK_OVERPASS)
+        endpoints.extend((FALLBACK_OVERPASS, SECONDARY_FALLBACK_OVERPASS))
     last_error: Exception | None = None
     for candidate in endpoints:
+        print(f"Trying Overpass instance: {urllib.parse.urlsplit(candidate).netloc}", file=sys.stderr)
         try:
-            raw = cached_request(cache, "overpass-buildings", candidate, data=payload, content_type="application/x-www-form-urlencoded")
+            # Building selections are deliberately small. Retrying the same
+            # overloaded public endpoint for minutes only freezes the GUI;
+            # fail over once after a short, bounded request instead.
+            raw = cached_request(
+                cache, "overpass-buildings", candidate, data=payload,
+                content_type="application/x-www-form-urlencoded",
+                attempts=1, timeout=OVERPASS_REQUEST_TIMEOUT,
+            )
             used_endpoint = candidate
             break
         except urllib.error.HTTPError as error:

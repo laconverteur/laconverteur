@@ -7,7 +7,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from geo.geo_phase0 import buildings_to_local, bounds_for_metric_extent, download_buildings, global_pixel, local_from_lon_lat, overpass_query, way_polygon
+from geo.geo_phase0 import OVERPASS_REQUEST_TIMEOUT, buildings_to_local, bounds_for_metric_extent, download_buildings, global_pixel, local_from_lon_lat, overpass_query, way_polygon
 from geo.geo_to_s3d import building_heights, prepare_surfaces, rotate_xy, select_buildings, terrain_height, terrain_surfaces, triangulate_ring
 from geo.elevation import grid_to_terrain, parse_ascii_grid
 
@@ -47,6 +47,21 @@ class GeoPhase0Tests(unittest.TestCase):
         self.assertEqual(buildings["features"], [])
         self.assertEqual(endpoint, "https://overpass.private.coffee/api/interpreter")
         self.assertEqual(request.call_count, 2)
+        self.assertTrue(all(call.kwargs["attempts"] == 1 for call in request.call_args_list))
+        self.assertTrue(all(call.kwargs["timeout"] == OVERPASS_REQUEST_TIMEOUT for call in request.call_args_list))
+
+    def test_overpass_uses_secondary_fallback(self):
+        first = urllib.error.HTTPError("primary", 504, "Gateway Timeout", {}, None)
+        second = urllib.error.HTTPError("fallback", 502, "Bad Gateway", {}, None)
+        first.read = second.read = lambda: b"temporarily unavailable"
+        with patch("geo.geo_phase0.cached_request", side_effect=[first, second, b'{"elements": []}']) as request:
+            buildings, endpoint = download_buildings(
+                {"south": 1, "west": 2, "north": 3, "east": 4}, Path("unused"),
+                "https://overpass-api.de/api/interpreter",
+            )
+        self.assertEqual(buildings["features"], [])
+        self.assertEqual(endpoint, "https://overpass.kumi.systems/api/interpreter")
+        self.assertEqual(request.call_count, 3)
 
     def test_invalid_way_is_skipped(self):
         self.assertIsNone(way_polygon({"nodes": [1, 2]}, {1: (1, 1), 2: (2, 2)}))
