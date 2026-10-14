@@ -4,7 +4,7 @@ First public release of the independent La Converteur interoperability tool.
 
 ## Highlights
 
-- Converts Soundvision `.xmlp`, `.xmls`, and `.xml` projects.
+- Converts Soundvision `.xmlp` and `.xmls` projects.
 - Converts ArrayCalc `.dbacv` and `.dbpr` projects.
 - Converts EASE Focus 3 `.fc3` projects directly.
 - Converts EASE 5 `.eprj` projects when a compatible local EASE 5 installation
@@ -14,6 +14,10 @@ First public release of the independent La Converteur interoperability tool.
   geometry.
 - Uses a 15 cm planarity tolerance when deciding whether adjacent geometry can
   be represented as one editable freeform surface.
+- Creates map-based venues with satellite imagery and OpenStreetMap building
+  footprints, with optional OpenTopography terrain data. Satellite imagery and
+  OpenStreetMap do not require a key; terrain downloads require a personal
+  OpenTopography API key, entered in the application when prompted.
 - Includes a Windows x64 portable build and SHA-256 checksum.
 
 ## Installation

@@ -19,7 +19,7 @@ EASE 5 into RDShape `.s3d` projects.
 
 ## Supported inputs
 
-- Soundvision: `.xmlp`, `.xmls`, `.xml`
+- Soundvision: `.xmlp`, `.xmls`
 - ArrayCalc: `.dbacv`, `.dbpr`
 - EASE Focus 3: `.fc3` (handled directly)
 - EASE 5: `.eprj` (requires a lawfully installed, compatible local EASE 5
@@ -31,6 +31,17 @@ EASE 5 installation. EASE Focus 3 imports do not require EASE 5.
 
 Users are responsible for ensuring that they are entitled to access and convert
 their project files and for complying with the applicable vendor agreements.
+
+## Map-based venues
+
+The **Create venue from map** view can generate an RDShape venue for a selected
+location. It combines satellite imagery with OpenStreetMap building footprints
+and can optionally add terrain elevation data from OpenTopography.
+
+Satellite imagery and OpenStreetMap data do not require an API key. Terrain
+downloads require a free personal OpenTopography API key. Enter the key when
+prompted by La Converteur; it is stored for the current Windows user as
+`LACONVERTEUR_OPENTOPOGRAPHY_API_KEY`.
 
 ## Repository layout
 
@@ -68,7 +79,7 @@ Use `-IncludeLarge` to include the large Uber Eats, Turm and Auditorium projects
 Venue fixtures are local-only and excluded from Git. They are never included
 in the source repository or uploaded through Git LFS.
 
-### Experimental map importer (Phase 0)
+### Map importer command-line tools
 
 The isolated geodata spike downloads an Esri World Imagery PNG and OpenStreetMap
 building footprints for a metric extent. Generated packages and caches belong in
