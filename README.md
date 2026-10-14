@@ -1,7 +1,7 @@
 # La Converteur
 
 <p align="center">
-  <img src="assets/app-icon.png" width="180" alt="La Converteur application icon">
+  <img src="docs/images/laconverteur-readme.png" width="960" alt="La Converteur converts venue project files into editable geometry">
 </p>
 
 La Converteur is an independent, open-source Windows converter for venue
@@ -108,3 +108,7 @@ format interoperability. No rights in those names or trademarks are granted.
 If we ever meet and La Converteur saved your day, you may buy one of the
 contributors a beer. This is a friendly, entirely optional gesture and is not
 an additional license condition.
+
+<p align="center">
+  <img src="docs/images/laconverteur-beer.png" width="820" alt="The La Converteur machine enjoying an optional thank-you beer">
+</p>
