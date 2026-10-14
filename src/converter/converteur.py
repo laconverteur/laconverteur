@@ -38,6 +38,7 @@ ORIGIN_GUID = "3adcb999-7f5f-4626-9f5e-f2d0bedb2448"
 AXIS_GUID = "2214ab1a-7162-4ad0-8cb6-b760fd7294be"
 DIRECTION_GUID = "ece5e8b8-f5f8-4c03-b601-be7ea6a40207"
 RECEIVER_COLOR_INDICES = (407, 230, 22, 503, 313, 61, 78, 402)
+ARRAYCALC_FREEFORM_PLANARITY_TOLERANCE = 0.15
 
 
 @dataclass
@@ -468,14 +469,18 @@ def read_easefocus(path: Path, properties_only: bool = False, include_basemaps: 
                 start = -math.radians(sweep) / 2.0
                 r1, r2 = inner_radius + d1, inner_radius + d2
                 angles = [start + math.radians(sweep) * segment / segments for segment in range(segments + 1)]
-                if r1 <= 1e-9:
-                    sector_points = [world(0, 0, z1)] + [
-                        world(r2 * math.cos(angle), r2 * math.sin(angle), z2) for angle in reversed(angles)
-                    ]
-                else:
-                    sector_points = [world(r1 * math.cos(angle), r1 * math.sin(angle), z1) for angle in angles]
-                    sector_points += [world(r2 * math.cos(angle), r2 * math.sin(angle), z2) for angle in reversed(angles)]
-                faces.append(sector_points)
+                for angle1, angle2 in zip(angles, angles[1:]):
+                    outer1 = world(r2 * math.cos(angle1), r2 * math.sin(angle1), z2)
+                    outer2 = world(r2 * math.cos(angle2), r2 * math.sin(angle2), z2)
+                    if r1 <= 1e-9:
+                        faces.append([world(0, 0, z1), outer2, outer1])
+                    else:
+                        inner1 = world(r1 * math.cos(angle1), r1 * math.sin(angle1), z1)
+                        inner2 = world(r1 * math.cos(angle2), r1 * math.sin(angle2), z1)
+                        # The two radial generators and their chord form one
+                        # planar face. Keep that quad intact for Freeform
+                        # instead of triangulating the whole curved strip.
+                        faces.append([inner1, inner2, outer2, outer1])
             else:
                 zone_depth = depth or max(d1, d2)
 
@@ -507,20 +512,9 @@ def read_easefocus(path: Path, properties_only: bool = False, include_basemaps: 
                 except ValueError:
                     continue
                 name = area_name if len(faces) == 1 else f"{area_name} {face_index}"
-                native_params = None
-                native_kind = None
-                if zone_type in ("Arc", "Annulus"):
-                    native_kind = "sector"
-                    native_params = {
-                        "center_x": center_x, "center_y": center_y,
-                        "orientation": math.degrees(orientation), "sweep": sweep,
-                        "inner_radius": r1, "outer_radius": r2,
-                        "inner_height": z1, "outer_height": z2,
-                    }
                 result.append(Surface(
                     name, points, ear_height, visible,
                     zone_name if area_count > 1 else None,
-                    native_kind=native_kind, native_params=native_params,
                     shape_name=zone_name if area_count == 1 else name,
                 ))
     free_receiver_count = integer("Project.ReceiverManager.FreeReceiversCount")
@@ -964,24 +958,48 @@ def _arraycalc_surfaces(records: list[dict]) -> list[Surface]:
                     a = curve["outer_a" if outer else "inner_a"]
                     b = curve["outer_b" if outer else "inner_b"]
                     n = curve.get("outer_n" if outer else "inner_n", 2.0) or 2.0
-                    exponent = 2.0 / n
-                    x = a * math.copysign(abs(math.cos(angle)) ** exponent, math.cos(angle))
-                    y = b * math.copysign(abs(math.sin(angle)) ** exponent, math.sin(angle))
                     z = curve["outer_z" if outer else "inner_z"]
-                    return (x, y, z)
+                    if a <= 1e-12 or b <= 1e-12:
+                        return (0.0, 0.0, z)
+                    cosine, sine = math.cos(angle), math.sin(angle)
+                    # ArrayCalc's StartAngle/SpanAngle are geometric polar
+                    # angles, not the parameter of an ellipse. Intersect the
+                    # corresponding ray with |x/a|^n + |y/b|^n = 1. Using
+                    # x=a*cos(t), y=b*sin(t) widens partial elliptical arcs by
+                    # many metres (especially Frankfurt's 200 SL/USC tiers).
+                    radius = ((abs(cosine) / a) ** n + (abs(sine) / b) ** n) ** (-1.0 / n)
+                    return (radius * cosine, radius * sine, z)
+
+                def planar_quad(a1, a2):
+                    return [radial(a1, False), radial(a2, False), radial(a2, True), radial(a1, True)]
+
+                def world_deviation(quad):
+                    world = [transform(record, point) for point in quad]
+                    try:
+                        normal = polygon_normal(world)
+                    except ValueError:
+                        return float("inf")
+                    return max(
+                        abs(sum(normal[axis] * (point[axis] - world[0][axis]) for axis in range(3)))
+                        for point in world[1:]
+                    )
+
+                def planar_parts(a1, a2, depth=0):
+                    quad = planar_quad(a1, a2)
+                    if world_deviation(quad) <= ARRAYCALC_FREEFORM_PLANARITY_TOLERANCE or depth >= 12:
+                        return [quad]
+                    middle = (a1 + a2) / 2.0
+                    return planar_parts(a1, middle, depth + 1) + planar_parts(middle, a2, depth + 1)
 
                 for i, (a1, a2) in enumerate(zip(angles, angles[1:]), 1):
-                    quad = [radial(a1, False), radial(a2, False), radial(a2, True), radial(a1, True)]
-                    candidates = (
-                        ([quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]),
-                        ([quad[0], quad[1], quad[3]], [quad[1], quad[2], quad[3]]),
-                    )
-                    def triangle_area(triangle):
-                        return length(cross(subtract(triangle[1], triangle[0]), subtract(triangle[2], triangle[0])))
-                    triangles = max(candidates, key=lambda pair: min(triangle_area(pair[0]), triangle_area(pair[1])))
-                    for suffix, triangle in zip(("A", "B"), triangles):
-                        if triangle_area(triangle) >= 1e-10:
-                            faces.append((f"{record['name']} {i}{suffix}", triangle))
+                    parts = planar_parts(a1, a2)
+                    for part_index, quad in enumerate(parts, 1):
+                        suffix = str(i) if len(parts) == 1 else f"{i}.{part_index}"
+                        # Curved strips are adaptively refined until each
+                        # four-point Freeform is planar within 15 cm. This
+                        # preserves the venue much more faithfully than either
+                        # projecting a twisted quad or splitting it diagonally.
+                        faces.append((f"{record['name']} {suffix}", quad))
         for face_name, local_points in faces:
             if len(local_points) >= 3:
                 world_points = [transform(record, p) for p in local_points]
@@ -1250,6 +1268,104 @@ def triangulate_simple_polygon(points):
     return triangles
 
 
+def polygon_is_simple(points, tolerance: float = 1e-9) -> bool:
+    """Return whether a polygon has a non-degenerate, non-crossing boundary."""
+    if len(points) < 3:
+        return False
+    try:
+        normal = polygon_normal(points)
+    except ValueError:
+        return False
+    drop_axis = max(range(3), key=lambda axis: abs(normal[axis]))
+    projected = [tuple(value for axis, value in enumerate(point) if axis != drop_axis) for point in points]
+
+    def orientation(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def on_segment(a, b, point):
+        return (min(a[0], b[0]) - tolerance <= point[0] <= max(a[0], b[0]) + tolerance
+                and min(a[1], b[1]) - tolerance <= point[1] <= max(a[1], b[1]) + tolerance)
+
+    def intersects(a, b, c, d):
+        values = (orientation(a, b, c), orientation(a, b, d), orientation(c, d, a), orientation(c, d, b))
+        if (((values[0] > tolerance and values[1] < -tolerance)
+             or (values[0] < -tolerance and values[1] > tolerance))
+                and ((values[2] > tolerance and values[3] < -tolerance)
+                     or (values[2] < -tolerance and values[3] > tolerance))):
+            return True
+        return any(
+            abs(value) <= tolerance and on_segment(first, second, point)
+            for value, first, second, point in (
+                (values[0], a, b, c), (values[1], a, b, d),
+                (values[2], c, d, a), (values[3], c, d, b),
+            )
+        )
+
+    count = len(projected)
+    for first in range(count):
+        a, b = projected[first], projected[(first + 1) % count]
+        for second in range(first + 1, count):
+            if second in (first, (first + 1) % count) or first == (second + 1) % count:
+                continue
+            c, d = projected[second], projected[(second + 1) % count]
+            if intersects(a, b, c, d):
+                return False
+    return True
+
+
+def prepare_freeform_surfaces(items: list[Surface], split_complex: bool = False,
+                              planarity_tolerance: float = 0.15) -> tuple[list[Surface], list[str]]:
+    """Prepare safe freeforms; split non-planar polygons and omit invalid ones."""
+    prepared: list[Surface] = []
+    skipped: list[str] = []
+
+    def add(item: Surface, points, suffix: str = ""):
+        prepared.append(Surface(
+            item.name + suffix, list(points), item.audience_height, item.visible, item.group,
+            item.color_rgba, item.transparency, "freeform", None,
+            (item.shape_name + suffix) if item.shape_name else None, item.notes,
+        ))
+
+    for item in items:
+        points = remove_redundant_polygon_points(item.points)
+        if len(points) < 3:
+            skipped.append(item.name)
+            continue
+        try:
+            normal = polygon_normal(points)
+        except ValueError:
+            skipped.append(item.name)
+            continue
+        if not polygon_is_simple(points):
+            # Preserve the established Soundvision repair for five-point
+            # records that encode a valid face plus a touching remainder.
+            if split_complex and len(points) == 5:
+                repaired = normalize_rdshape_polygons([item], split_complex=False)
+                repair_result, repair_skipped = prepare_freeform_surfaces(
+                    repaired, split_complex=False, planarity_tolerance=planarity_tolerance,
+                )
+                prepared.extend(repair_result)
+                skipped.extend(repair_skipped)
+            else:
+                skipped.append(item.name)
+            continue
+        max_deviation = max(
+            abs(sum(normal[axis] * (point[axis] - points[0][axis]) for axis in range(3)))
+            for point in points[1:]
+        )
+        if max_deviation <= planarity_tolerance:
+            add(item, points)
+            continue
+        try:
+            triangles = triangulate_simple_polygon(points)
+        except ValueError:
+            skipped.append(item.name)
+            continue
+        for index, triangle in enumerate(triangles, 1):
+            add(item, triangle, f" [{index}]")
+    return prepared, skipped
+
+
 def normalize_rdshape_polygons(items: list[Surface], split_complex: bool = False) -> list[Surface]:
     """Express simple 3/5-point polygons with RDShape's editable 4-point type."""
     def triangle_as_quad(a, b, c):
@@ -1305,6 +1421,7 @@ def normalize_rdshape_polygons(items: list[Surface], split_complex: bool = False
 
 def build_tcl(template: Path, output: Path, items: list[Surface], group_template: Path | None = None,
               sector_template: Path | None = None, trapezium_template: Path | None = None,
+              freeform_template: Path | None = None,
               basemaps: list[Basemap] | None = None,
               basemap_template: Path | None = None, receivers: list[Receiver] | None = None,
               receiver_template: Path | None = None) -> str:
@@ -1314,14 +1431,13 @@ def build_tcl(template: Path, output: Path, items: list[Surface], group_template
     # Only load the command sets used by the converter.  Avoiding ``pload ALL``
     # keeps the portable distribution independent from visualization, VTK, Qt,
     # OpenVR and other unrelated OCCT third-party runtimes.
-    lines = ["pload MODELING OCAF", f"Open {tcl_quote(template.as_posix())} S3D"]
+    lines = ["pload MODELING OCAFKERNEL", f"Open {tcl_quote(template.as_posix())} S3D"]
     groups = list(dict.fromkeys(item.group for item in items if item.group))
     if groups and group_template is not None:
         lines.append(f"Open {tcl_quote(group_template.as_posix())} GROUPREF")
-    if any(item.native_kind == "sector" for item in items) and sector_template is not None:
-        lines.append(f"Open {tcl_quote(sector_template.as_posix())} SECTORREF")
-    if any(item.native_kind == "trapezium" for item in items) and trapezium_template is not None:
-        lines.append(f"Open {tcl_quote(trapezium_template.as_posix())} TRAPEZIUMREF")
+    if freeform_template is None:
+        raise FileNotFoundError("The RDShape freeform template was not found.")
+    lines.append(f"Open {tcl_quote(freeform_template.as_posix())} FREEFORMREF")
     if basemaps and basemap_template is not None:
         lines.append(f"Open {tcl_quote(basemap_template.as_posix())} BASEMAPREF")
     if receivers and receiver_template is not None:
@@ -1336,18 +1452,11 @@ def build_tcl(template: Path, output: Path, items: list[Surface], group_template
         "SetIntArray S3D 0:1:1:4 0 -g 0e1c2caf-0af1-416f-8848-1b6b171b3bdd "
         f"1 16 {shape_counts}"
     )
-    for tag, item in enumerate(items[1:], 3):
-        # Linked audience carriers must use RDShape's rectangle function even
-        # when their four vertices geometrically form a trapezoid.
-        if item.audience_height is not None:
-            source = "S3D 0:1:1:4:2"
-        elif item.native_kind == "sector":
-            source = "SECTORREF 0:1:1:4:3"
-        elif item.native_kind == "trapezium":
-            source = "TRAPEZIUMREF 0:1:1:4:4"
-        else:
-            source = "S3D 0:1:1:4:2"
-        lines.append(f"CopyDF {source} S3D 0:1:1:4:{tag}")
+    # Replace the base rectangle carrier as well: every venue shape now uses
+    # RDShape's native Freeform function, including linked audiences.
+    lines += ["ForgetAll S3D 0:1:1:4:2", "CopyDF FREEFORMREF 0:1:1:4:2 S3D 0:1:1:4:2"]
+    for tag in range(3, len(items) + 2):
+        lines.append(f"CopyDF FREEFORMREF 0:1:1:4:2 S3D 0:1:1:4:{tag}")
     for tag in range(3, len(audience_items) + 2):
         lines.append(f"CopyDF S3D 0:1:1:3:2 S3D 0:1:1:3:{tag}")
     if basemaps:
@@ -1434,9 +1543,9 @@ def build_tcl(template: Path, output: Path, items: list[Surface], group_template
         )
         for index, point in enumerate(points, 1):
             set_array(f"{entry}:2:{index}", POINT_GUID, point)
-        # The generic RDShape prototype contains four point child labels.
-        for index in range(len(points) + 1, 5):
-            lines.append(f"ForgetAll S3D {entry}:2:{index}")
+        # Point children beyond this count are ignored by RDShape. Do not
+        # remove them: shape and audience prototypes have different child
+        # capacities, and ForgetAll fails for a label that does not exist.
         if has_normal:
             set_array(f"{entry}:2", NORMAL_GUID, upward_normal)
         set_array(f"{entry}:3", ORIGIN_GUID, origin)
@@ -1620,10 +1729,7 @@ def build_tcl(template: Path, output: Path, items: list[Surface], group_template
             f"SetInteger S3D {shape_entry}:1 0 "
             "59c99e6f-a3f4-4dd0-8b80-1cf774577d2a"
         )
-        if item.native_kind == "sector" and item.audience_height is None:
-            configure_sector(shape_entry, item, f"shape_{shape_index}", item.shape_name)
-        else:
-            configure_geometry(shape_entry, item, f"shape_{shape_index}", True, item.shape_name)
+        configure_geometry(shape_entry, item, f"shape_{shape_index}", True, item.shape_name)
         if item.audience_height is not None:
             audience_index += 1
             audience_entry = f"0:1:1:3:{audience_index + 1}"
@@ -1667,8 +1773,7 @@ def build_tcl(template: Path, output: Path, items: list[Surface], group_template
 
     lines += [
         *( ["Close GROUPREF"] if groups and group_template is not None else [] ),
-        *( ["Close SECTORREF"] if any(item.native_kind == "sector" for item in items) and sector_template is not None else [] ),
-        *( ["Close TRAPEZIUMREF"] if any(item.native_kind == "trapezium" for item in items) and trapezium_template is not None else [] ),
+        "Close FREEFORMREF",
         *( ["Close BASEMAPREF"] if basemaps and basemap_template is not None else [] ),
         *( ["Close MICREF"] if receivers and receiver_template is not None else [] ),
         "Format S3D BinOcaf",
@@ -1753,7 +1858,7 @@ def apply_presentations(output: Path, items: list[Surface], draw: Path, env: dic
     xml_path = output.with_suffix(".presentation.xml")
     final_path = output.with_suffix(".presentation.s3d")
     export_script = "\n".join([
-        "pload OCAF", f"Open {tcl_quote(output.as_posix())} DOC", "Format DOC XmlOcaf",
+        "pload OCAFKERNEL", f"Open {tcl_quote(output.as_posix())} DOC", "Format DOC XmlOcaf",
         f"SaveAs DOC {tcl_quote(xml_path.as_posix())}", "Close DOC", "exit",
     ])
     if run_draw_script(draw, env, output.parent, export_script) != 0 or not xml_path.exists():
@@ -1864,7 +1969,7 @@ def apply_presentations(output: Path, items: list[Surface], draw: Path, env: dic
     )
     xml_path.write_text(xml_text, encoding="utf-8")
     import_script = "\n".join([
-        "pload OCAF", f"Open {tcl_quote(xml_path.as_posix())} DOC", "Format DOC BinOcaf",
+        "pload OCAFKERNEL", f"Open {tcl_quote(xml_path.as_posix())} DOC", "Format DOC BinOcaf",
         f"SaveAs DOC {tcl_quote(final_path.as_posix())}", "Close DOC", "exit",
     ])
     run_code = run_draw_script(draw, env, output.parent, import_script)
@@ -1924,14 +2029,15 @@ def main() -> int:
         items = [item for item in items if item.audience_height is not None]
     if args.limit is not None:
         items = items[: args.limit]
-    items = normalize_rdshape_polygons(items, split_complex=suffix in (".xmlp", ".xmls", ".xml"))
+    items, skipped_items = prepare_freeform_surfaces(
+        items, split_complex=suffix in (".xmlp", ".xmls", ".xml"),
+    )
+    if skipped_items:
+        print(f"Omitted {len(skipped_items)} invalid surface(s); no invalid RDShape objects were written.")
     if args.shapes_only:
         items = [Surface(item.name, item.points, None, item.visible, item.group, item.color_rgba,
                          item.transparency, item.native_kind, item.native_params, item.shape_name,
                          item.notes) for item in items]
-    # The base template's first Shapes entry is the generic polygon prototype.
-    # Keep it first; subsequent native entries are copied from their own template.
-    items.sort(key=lambda item: item.native_kind is not None)
     if not items:
         raise ValueError("The scene does not contain any surfaces.")
     for item in items:
@@ -1945,14 +2051,6 @@ def main() -> int:
             (abs(sum(base_normal[i] * (point[i] - item.points[0][i]) for i in range(3))) for point in item.points[1:]),
             default=0.0,
         )
-        if item.native_kind is None and max_deviation > 5e-2:
-            raise ValueError(f"{item.name}: non-planar (deviation {max_deviation:g} m)")
-        if item.native_kind is None and len(item.points) == 4 and not is_rectangular_quad(item.points):
-            item.points = orient_trapezium_points(item.points)
-            item.native_kind = "trapezium"
-    # Keep the generic Rectangle prototype in the first Shapes slot whenever
-    # possible; native-function entries are copied into subsequent slots.
-    items.sort(key=lambda item: item.native_kind is not None)
 
     default_template = Path("rdshape/20_20_20__audience.s3d" if any(item.audience_height is not None for item in items) else "rdshape/20_20_20.s3d")
     template = (args.template or default_template).resolve()
@@ -1968,6 +2066,10 @@ def main() -> int:
     trapezium_template = trapezium_template_candidate.resolve() if trapezium_template_candidate.exists() else None
     if any(item.native_kind == "trapezium" for item in items) and trapezium_template is None:
         raise FileNotFoundError("The RDShape trapezium template was not found.")
+    freeform_template_candidate = Path("rdshape/freeform_template.s3d")
+    freeform_template = freeform_template_candidate.resolve() if freeform_template_candidate.exists() else None
+    if freeform_template is None:
+        raise FileNotFoundError("The RDShape freeform template was not found.")
     basemap_template_candidate = Path("rdshape/basemap_template.s3d")
     basemap_template = basemap_template_candidate.resolve() if basemap_template_candidate.exists() else None
     if basemaps and basemap_template is None:
@@ -1982,7 +2084,7 @@ def main() -> int:
     print("Creating RDShape geometry ...", flush=True)
     script = build_tcl(
         template, output, items, group_template=group_template, sector_template=sector_template,
-        trapezium_template=trapezium_template, basemaps=basemaps,
+        trapezium_template=trapezium_template, freeform_template=freeform_template, basemaps=basemaps,
         basemap_template=basemap_template, receivers=receivers, receiver_template=receiver_template,
     )
     env["THIRDPARTY_DIR"] = str(args.occt.resolve() / "3rdparty-vc14-64")

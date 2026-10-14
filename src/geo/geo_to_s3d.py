@@ -262,10 +262,11 @@ def write_s3d(package: Path, output: Path, occt: Path, templates: Path, limit: i
     template = templates / "20_20_20.s3d"
     group_template = templates / "group_template.s3d"
     trapezium_template = templates / "trapezium_template.s3d"
+    freeform_template = templates / "freeform_template.s3d"
     basemap_template = templates / "basemap_template.s3d"
     output.parent.mkdir(parents=True, exist_ok=True)
     draw, environment = occt_environment(occt)
-    script = build_tcl(template, output, items, group_template=group_template, trapezium_template=trapezium_template, basemaps=[basemap], basemap_template=basemap_template)
+    script = build_tcl(template, output, items, group_template=group_template, trapezium_template=trapezium_template, freeform_template=freeform_template, basemaps=[basemap], basemap_template=basemap_template)
     environment["THIRDPARTY_DIR"] = str(occt / "3rdparty-vc14-64")
     code = run_draw_script(draw, environment, output.parent, script)
     appended = Path(str(output) + ".cbf")

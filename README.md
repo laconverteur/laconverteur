@@ -1,13 +1,36 @@
 # La Converteur
 
-La Converteur converts venue projects from Soundvision, ArrayCalc, EASE Focus 3 and EASE 5 into RDShape `.s3d` projects.
+<p align="center">
+  <img src="assets/app-icon.png" width="180" alt="La Converteur application icon">
+</p>
+
+La Converteur is an independent, open-source Windows converter for venue
+geometry. It converts projects from Soundvision, ArrayCalc, EASE Focus 3 and
+EASE 5 into RDShape `.s3d` projects.
+
+> [!IMPORTANT]
+> La Converteur is an independent community project. It is not affiliated with,
+> endorsed by, sponsored by, supported by, or otherwise connected with
+> L-Acoustics, d&b audiotechnik, AFMG Technologies, or RCF S.p.A.
+>
+> Soundvision, ArrayCalc, EASE, EASE Focus, RDShape, and all other product names
+> and trademarks are the property of their respective owners. Those companies
+> do not provide support for La Converteur.
 
 ## Supported inputs
 
 - Soundvision: `.xmlp`, `.xmls`, `.xml`
 - ArrayCalc: `.dbacv`, `.dbpr`
-- EASE Focus 3: `.fc3`
-- EASE 5: `.eprj` (requires a compatible local EASE 5 installation for legacy projects)
+- EASE Focus 3: `.fc3` (handled directly)
+- EASE 5: `.eprj` (requires a lawfully installed, compatible local EASE 5
+  installation)
+
+La Converteur does not include AFMG program libraries and does not bypass EASE
+5 licensing. The EASE 5 adapter loads `S4.EASE.Core.dll` from the user's local
+EASE 5 installation. EASE Focus 3 imports do not require EASE 5.
+
+Users are responsible for ensuring that they are entitled to access and convert
+their project files and for complying with the applicable vendor agreements.
 
 ## Repository layout
 
@@ -72,3 +95,16 @@ python .\src\geo\geo_to_s3d.py .\tests\output\geo-phase0 .\tests\output\geo-stag
 
 Use `--limit 0` to include every simple quadrilateral building footprint and
 building part returned for the selected extent.
+
+## License
+
+The original La Converteur source code and project assets are licensed under
+the [Apache License 2.0](LICENSE). Distributed third-party components remain
+under their respective licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+The names and trademarks of supported products are used only to describe file
+format interoperability. No rights in those names or trademarks are granted.
+
+If we ever meet and La Converteur saved your day, you may buy one of the
+contributors a beer. This is a friendly, entirely optional gesture and is not
+an additional license condition.

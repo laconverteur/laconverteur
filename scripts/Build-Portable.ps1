@@ -48,7 +48,26 @@ Copy-Item -LiteralPath (Join-Path $repo "templates\rdshape") -Destination (Join-
 Copy-Item -LiteralPath (Join-Path $repo "assets") -Destination (Join-Path $support "assets") -Recurse
 Copy-Item -LiteralPath (Join-Path $repo "src\gui\strings.en.json") -Destination (Join-Path $support "strings.en.json")
 
-$unexpected = @(Get-ChildItem -LiteralPath $stage -Force | Where-Object { $_.Name -notin @("La Converteur.exe", "converteur") })
+$licenseDir = Join-Path $stage "licenses"
+New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+foreach ($name in @("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md")) {
+    Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $stage
+}
+$dotnetRoot = Split-Path (Get-Command dotnet).Source -Parent
+Copy-Item -LiteralPath (Join-Path $dotnetRoot "LICENSE.txt") -Destination (Join-Path $licenseDir "dotnet-LICENSE.txt")
+Copy-Item -LiteralPath (Join-Path $dotnetRoot "ThirdPartyNotices.txt") -Destination (Join-Path $licenseDir "dotnet-THIRD-PARTY-NOTICES.txt")
+Copy-Item -LiteralPath (Join-Path $runtime "python\LICENSE.txt") -Destination (Join-Path $licenseDir "python-LICENSE.txt")
+$occtSource = Join-Path (Split-Path $runtime -Parent) "occt-vc143-64"
+foreach ($name in @("LICENSE_LGPL_21.txt", "OCCT_LGPL_EXCEPTION.txt")) {
+    $source = Join-Path $occtSource $name
+    if (-not (Test-Path -LiteralPath $source)) { throw "OCCT license file not found: $source" }
+    Copy-Item -LiteralPath $source -Destination (Join-Path $licenseDir "occt-$name")
+}
+Copy-Item -Path (Join-Path $repo "third_party\licenses\*") -Destination $licenseDir -Force
+Copy-Item -LiteralPath (Join-Path $occtSource "LICENSE_LGPL_21.txt") -Destination (Join-Path $licenseDir "FFmpeg-LGPL-2.1.txt")
+Copy-Item -LiteralPath (Join-Path $runtime "occt\3rdparty-vc14-64\tcltk-86-64\license.terms") -Destination (Join-Path $licenseDir "TclTk-license.terms")
+
+$unexpected = @(Get-ChildItem -LiteralPath $stage -Force | Where-Object { $_.Name -notin @("La Converteur.exe", "converteur", "licenses", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md") })
 if ($unexpected.Count -gt 0) {
     throw "Unexpected files beside the executable: $($unexpected.Name -join ', ')"
 }
